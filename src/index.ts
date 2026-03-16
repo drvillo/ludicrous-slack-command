@@ -1,11 +1,35 @@
 export interface Env {
   SLACK_SIGNING_SECRET: string
-  ASSETS: Fetcher
+  ASSETS?: Fetcher
 }
 
 const SLACK_SIGNATURE_HEADER = 'x-slack-signature'
 const SLACK_TIMESTAMP_HEADER = 'x-slack-request-timestamp'
 const MAX_AGE_SECONDS = 60 * 5
+const ATTACHMENTS_FLAG = '--attachments'
+const MESSAGE_TEXT = 'Ludicrous speed, go!'
+
+interface SlackBlockPayload {
+  response_type: 'in_channel'
+  text: string
+  blocks: Array<{
+    type: 'image'
+    image_url: string
+    alt_text: string
+  }>
+}
+
+interface SlackAttachmentPayload {
+  response_type: 'in_channel'
+  text: string
+  attachments: Array<{
+    fallback: string
+    text: string
+    image_url: string
+  }>
+}
+
+type SlackPayload = SlackBlockPayload | SlackAttachmentPayload
 
 function parseFormBody(body: string): Record<string, string> {
   const params = new URLSearchParams(body)
@@ -51,6 +75,33 @@ async function verifySlackSignature(
   return diff === 0
 }
 
+function buildSlackPayload(imageUrl: string, useAttachments: boolean): SlackPayload {
+  if (useAttachments) {
+    return {
+      response_type: 'in_channel',
+      text: MESSAGE_TEXT,
+      attachments: [
+        {
+          fallback: MESSAGE_TEXT,
+          text: MESSAGE_TEXT,
+          image_url: imageUrl,
+        },
+      ],
+    }
+  }
+  return {
+    response_type: 'in_channel',
+    text: MESSAGE_TEXT,
+    blocks: [
+      {
+        type: 'image',
+        image_url: imageUrl,
+        alt_text: 'Ludicrous speed',
+      },
+    ],
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url)
@@ -62,6 +113,9 @@ export default {
     }
 
     if (request.method === 'GET' && url.pathname === '/ludicrous.gif') {
+      if (!env.ASSETS) {
+        return new Response('Assets not configured', { status: 503 })
+      }
       const assetResponse = await env.ASSETS.fetch(request)
       if (assetResponse.status === 404) return assetResponse
       return new Response(assetResponse.body, {
@@ -75,6 +129,9 @@ export default {
     }
 
     if (request.method !== 'POST' || url.pathname !== '/') {
+      if (!env.ASSETS) {
+        return new Response('Not Found', { status: 404 })
+      }
       return env.ASSETS.fetch(request)
     }
 
@@ -97,26 +154,36 @@ export default {
     if (!responseUrl) {
       return new Response('Missing response_url', { status: 400 })
     }
+    const commandText = form.text ?? ''
+    const useAttachments = commandText.includes(ATTACHMENTS_FLAG)
 
     const origin = url.origin
     const imageUrl = `${origin}/ludicrous.gif`
-    const payload = {
-      response_type: 'in_channel' as const,
-      blocks: [
-        {
-          type: 'image' as const,
-          image_url: imageUrl,
-          alt_text: 'Ludicrous speed',
-        },
-      ],
-    }
+    const payload = buildSlackPayload(imageUrl, useAttachments)
 
     ctx.waitUntil(
-      fetch(responseUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
+      (async () => {
+        try {
+          const slackResponse = await fetch(responseUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          })
+          const responseBody = await slackResponse.text()
+          console.log(
+            JSON.stringify({
+              event: 'slack_response_url_post',
+              mode: useAttachments ? 'attachments' : 'blocks',
+              status: slackResponse.status,
+              ok: slackResponse.ok,
+              responseBody: responseBody.slice(0, 300),
+            })
+          )
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          console.error(`slack_response_url_post_failed: ${message}`)
+        }
+      })()
     )
 
     return new Response()

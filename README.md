@@ -53,6 +53,14 @@ The app ships with a tiny placeholder GIF. To use your own:
 - Replace `public/ludicrous.gif` with your GIF (must be a valid GIF).
 - Commit and push; the next deploy will serve the new file.
 
+### 6. Troubleshooting render mode
+
+If Slack shows a blank image block, you can force legacy attachment rendering for one request:
+
+- Run `/ludicrous --attachments`
+
+The worker will send `attachments.image_url` instead of Block Kit `blocks` for that invocation.
+
 ## Local development
 
 ```bash
