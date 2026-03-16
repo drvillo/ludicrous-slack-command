@@ -1,5 +1,6 @@
 export interface Env {
   SLACK_SIGNING_SECRET: string
+  ASSETS: Fetcher
 }
 
 const SLACK_SIGNATURE_HEADER = 'x-slack-signature'
@@ -57,6 +58,19 @@ export default {
     if (request.method === 'GET' && url.pathname === '/health') {
       return new Response(JSON.stringify({ ok: true }), {
         headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    if (request.method === 'GET' && url.pathname === '/ludicrous.gif') {
+      const assetResponse = await env.ASSETS.fetch(request)
+      if (assetResponse.status === 404) return assetResponse
+      return new Response(assetResponse.body, {
+        status: assetResponse.status,
+        headers: {
+          'Content-Type': 'image/gif',
+          'Cache-Control': 'public, max-age=86400',
+          'Access-Control-Allow-Origin': '*',
+        },
       })
     }
 
