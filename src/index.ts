@@ -75,7 +75,7 @@ export default {
     }
 
     if (request.method !== 'POST' || url.pathname !== '/') {
-      return new Response('Not Found', { status: 404 })
+      return env.ASSETS.fetch(request)
     }
 
     const rawBody = await request.clone().text()
