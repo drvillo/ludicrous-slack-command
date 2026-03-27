@@ -8,6 +8,7 @@ const SLACK_TIMESTAMP_HEADER = 'x-slack-request-timestamp'
 const MAX_AGE_SECONDS = 60 * 5
 const ATTACHMENTS_FLAG = '--attachments'
 const MESSAGE_TEXT = 'Ludicrous speed, go!'
+const SPACEBALLS_GIF_PATHS = ['/ludicrous.gif', '/spaceballs-ludicrous.gif'] as const
 
 interface SlackBlockPayload {
   response_type: 'in_channel'
@@ -30,6 +31,11 @@ interface SlackAttachmentPayload {
 }
 
 type SlackPayload = SlackBlockPayload | SlackAttachmentPayload
+
+function pickRandomSpaceballsGifPath(): (typeof SPACEBALLS_GIF_PATHS)[number] {
+  const randomIndex = Math.floor(Math.random() * SPACEBALLS_GIF_PATHS.length)
+  return SPACEBALLS_GIF_PATHS[randomIndex]
+}
 
 function parseFormBody(body: string): Record<string, string> {
   const params = new URLSearchParams(body)
@@ -158,7 +164,7 @@ export default {
     const useAttachments = commandText.includes(ATTACHMENTS_FLAG)
 
     const origin = url.origin
-    const imageUrl = `${origin}/ludicrous.gif`
+    const imageUrl = `${origin}${pickRandomSpaceballsGifPath()}`
     const payload = buildSlackPayload(imageUrl, useAttachments)
 
     ctx.waitUntil(
