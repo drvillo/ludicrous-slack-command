@@ -1,13 +1,13 @@
 # Ludicrous Slack Command
 
-Slack slash command `/ludicrous` that posts a ludicrous speed GIF to the channel. Runs as a Cloudflare Worker and deploys from Git (GitHub Actions).
+Slack slash command `/ludicrous` that posts a random Spaceballs GIF to the channel. Runs as a Cloudflare Worker and deploys from Git (GitHub Actions).
 
 ## How it works
 
 1. User types `/ludicrous` in a channel.
 2. Slack sends a POST to this Worker with a `response_url`.
-3. The Worker replies with 200 immediately, then POSTs to `response_url` with a message containing the GIF.
-4. The GIF is served from the same Worker at `/ludicrous.gif` (static asset in `public/`).
+3. The Worker replies with 200 immediately, then POSTs to `response_url` with a message containing one randomly selected GIF.
+4. GIFs are served from the same Worker at `/ludicrous.gif` and `/spaceballs-ludicrous.gif` (static assets in `public/`).
 
 ## Setup (minimal manual steps)
 
@@ -46,11 +46,11 @@ Push to the `main` branch. The GitHub Action deploys the Worker and uploads `SLA
 
 After the first run, copy the Worker URL from the workflow log (e.g. `https://ludicrous-slack-command.<subdomain>.workers.dev`) and set it as the **Request URL** in the Slack slash command (step 3) if you used a placeholder.
 
-### 5. Custom GIF (optional)
+### 5. Custom GIFs (optional)
 
-The app ships with a tiny placeholder GIF. To use your own:
+The app ships with two Spaceballs GIFs and picks one randomly on each command. To customize:
 
-- Replace `public/ludicrous.gif` with your GIF (must be a valid GIF).
+- Replace `public/ludicrous.gif` and/or `public/spaceballs-ludicrous.gif` with your GIF files (must be valid GIFs).
 - Commit and push; the next deploy will serve the new file.
 
 ### 6. Troubleshooting render mode
@@ -84,7 +84,8 @@ Slack must send requests to your public URL. Use a tunnel (e.g. [cloudflared](ht
 ## Project layout
 
 - `src/index.ts` – Worker: verifies Slack signature, parses form body, acks and POSTs image message to `response_url`.
-- `public/ludicrous.gif` – GIF served at `/ludicrous.gif`.
+- `public/ludicrous.gif` – GIF candidate served at `/ludicrous.gif`.
+- `public/spaceballs-ludicrous.gif` – GIF candidate served at `/spaceballs-ludicrous.gif`.
 - `wrangler.toml` – Worker name, entry point, static assets.
 - `.github/workflows/deploy.yml` – Deploys on push to `main` and injects `SLACK_SIGNING_SECRET`.
 
