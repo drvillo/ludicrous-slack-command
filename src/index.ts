@@ -37,6 +37,10 @@ function pickRandomSpaceballsGifPath(): (typeof SPACEBALLS_GIF_PATHS)[number] {
   return SPACEBALLS_GIF_PATHS[randomIndex]
 }
 
+function isSpaceballsGifPath(pathname: string): pathname is (typeof SPACEBALLS_GIF_PATHS)[number] {
+  return SPACEBALLS_GIF_PATHS.includes(pathname as (typeof SPACEBALLS_GIF_PATHS)[number])
+}
+
 function parseFormBody(body: string): Record<string, string> {
   const params = new URLSearchParams(body)
   const out: Record<string, string> = {}
@@ -118,7 +122,7 @@ export default {
       })
     }
 
-    if (request.method === 'GET' && url.pathname === '/ludicrous.gif') {
+    if (request.method === 'GET' && isSpaceballsGifPath(url.pathname)) {
       if (!env.ASSETS) {
         return new Response('Assets not configured', { status: 503 })
       }
