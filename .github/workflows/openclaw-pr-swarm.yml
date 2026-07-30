@@ -30,6 +30,7 @@ jobs:
           ACTION: ${{ github.event.action }}
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if [ -z "${OPENCLAW_PR_SWARM_WEBHOOK_URL:-}" ] || [ -z "${OPENCLAW_PR_SWARM_ROUTE_SECRET:-}" ] || [ -z "${OPENCLAW_PR_SWARM_SIGNING_SECRET:-}" ]; then
@@ -52,9 +53,38 @@ jobs:
             return JSON.stringify(value);
           }
 
-          const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
-          const pr = event.pull_request;
-          if (!pr) process.exit(0);
+          async function fetchPrFiles(pr) {
+            const files = [];
+            for (let page = 1; page <= 30; page += 1) {
+              const url = `${pr.url}/files?per_page=100&page=${page}`;
+              const res = await fetch(url, {
+                headers: {
+                  authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+                  accept: 'application/vnd.github+json',
+                  'x-github-api-version': '2022-11-28'
+                }
+              });
+              if (!res.ok) throw new Error(`GitHub files API status ${res.status}: ${await res.text()}`);
+              const batch = await res.json();
+              files.push(...batch.map((file) => ({
+                path: file.filename,
+                status: file.status || 'modified',
+                additions: Number(file.additions || 0),
+                deletions: Number(file.deletions || 0)
+              })));
+              if (batch.length < 100) break;
+            }
+            if (files.length === 0 && Number(pr.changed_files || 0) > 0) {
+              throw new Error(`GitHub files API returned no files for PR with changed_files=${pr.changed_files}`);
+            }
+            return files;
+          }
+
+          async function main() {
+            const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
+            const pr = event.pull_request;
+            if (!pr) process.exit(0);
+            const changedFiles = await fetchPrFiles(pr);
           const compact = {
             eventId: `${event.repository.full_name}:${pr.number}:${process.env.ACTION}:${pr.head.sha}:${process.env.RUN_ID}:${process.env.RUN_ATTEMPT}`,
             repo: event.repository.full_name,
@@ -70,7 +100,7 @@ jobs:
             githubRunId: process.env.RUN_ID,
             githubRunAttempt: process.env.RUN_ATTEMPT,
             labels: (pr.labels || []).map((label) => label.name),
-            changedFiles: [],
+            changedFiles,
             checks: [],
             fork: pr.head.repo && pr.base.repo ? pr.head.repo.full_name !== pr.base.repo.full_name : false,
             headRepo: pr.head.repo && pr.head.repo.full_name,
@@ -102,7 +132,7 @@ jobs:
               headers: signatureHeaders
             }
           };
-          fetch(process.env.OPENCLAW_PR_SWARM_WEBHOOK_URL, {
+          const res = await fetch(process.env.OPENCLAW_PR_SWARM_WEBHOOK_URL, {
             method: 'POST',
             headers: {
               'content-type': 'application/json',
@@ -110,9 +140,11 @@ jobs:
               ...signatureHeaders
             },
             body: JSON.stringify(body)
-          }).then(async (res) => {
-            if (!res.ok) throw new Error(`OpenClaw webhook status ${res.status}: ${await res.text()}`);
-          }).catch((err) => {
+          });
+          if (!res.ok) throw new Error(`OpenClaw webhook status ${res.status}: ${await res.text()}`);
+          }
+
+          main().catch((err) => {
             console.error(`OpenClaw PR Swarm enqueue failed: ${err.message}`);
             process.exit(1);
           });
