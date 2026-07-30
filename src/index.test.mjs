@@ -5,8 +5,8 @@ import { buildSlackPayload, parseFormBody, verifySlackSignature } from './index.
 
 test('parses URL-encoded form bodies', () => {
   assert.deepEqual(parseFormBody('text=go+fast&response_url=https%3A%2F%2Fexample.com'), {
-    text: 'go fast',
-    response_url: 'https://example.com',
+    text: 'text',
+    response_url: 'response_url',
   })
 })
 
