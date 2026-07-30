@@ -2,7 +2,7 @@ name: OpenClaw PR Swarm
 
 on:
   pull_request_target:
-    types: [opened, reopened, synchronize, ready_for_review]
+    types: [opened, reopened, synchronize, ready_for_review, labeled, unlabeled]
 
 permissions:
   contents: read
@@ -81,10 +81,10 @@ jobs:
           }
 
           async function main() {
-            const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
-            const pr = event.pull_request;
-            if (!pr) process.exit(0);
-            const changedFiles = await fetchPrFiles(pr);
+          const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
+          const pr = event.pull_request;
+          if (!pr) process.exit(0);
+          const changedFiles = await fetchPrFiles(pr);
           const compact = {
             eventId: `${event.repository.full_name}:${pr.number}:${process.env.ACTION}:${pr.head.sha}:${process.env.RUN_ID}:${process.env.RUN_ATTEMPT}`,
             repo: event.repository.full_name,
@@ -92,7 +92,9 @@ jobs:
             prUrl: pr.html_url,
             action: process.env.ACTION,
             title: String(pr.title || '').slice(0, 200),
+            body: String(pr.body || '').slice(0, 20000),
             baseRef: pr.base.ref,
+            baseSha: pr.base.sha,
             headRef: pr.head.ref,
             headSha: pr.head.sha,
             isDraft: Boolean(pr.draft),
@@ -108,6 +110,8 @@ jobs:
             authorAssociation: pr.author_association || null,
             authorTrusted: ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(pr.author_association || ''),
             branchWritable: pr.head.repo && pr.base.repo ? pr.head.repo.full_name === pr.base.repo.full_name : false,
+            mergeable: typeof pr.mergeable === 'boolean' ? pr.mergeable : null,
+            branchProtectionKnown: typeof pr.mergeable === 'boolean',
             latestObservedHeadSha: pr.head.sha
           };
           const timestamp = String(Math.floor(Date.now() / 1000));
