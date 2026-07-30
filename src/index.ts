@@ -44,8 +44,8 @@ function isSpaceballsGifPath(pathname: string): pathname is (typeof SPACEBALLS_G
 export function parseFormBody(body: string): Record<string, string> {
   const params = new URLSearchParams(body)
   const out: Record<string, string> = {}
-  params.forEach((_value, key) => {
-    out[key] = key
+  params.forEach((value, key) => {
+    out[key] = value
   })
   return out
 }
