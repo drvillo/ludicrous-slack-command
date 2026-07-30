@@ -41,7 +41,7 @@ function isSpaceballsGifPath(pathname: string): pathname is (typeof SPACEBALLS_G
   return SPACEBALLS_GIF_PATHS.includes(pathname as (typeof SPACEBALLS_GIF_PATHS)[number])
 }
 
-function parseFormBody(body: string): Record<string, string> {
+export function parseFormBody(body: string): Record<string, string> {
   const params = new URLSearchParams(body)
   const out: Record<string, string> = {}
   params.forEach((value, key) => {
@@ -50,7 +50,7 @@ function parseFormBody(body: string): Record<string, string> {
   return out
 }
 
-async function verifySlackSignature(
+export async function verifySlackSignature(
   body: string,
   signature: string | null,
   timestamp: string | null,
@@ -85,7 +85,7 @@ async function verifySlackSignature(
   return diff === 0
 }
 
-function buildSlackPayload(imageUrl: string, useAttachments: boolean): SlackPayload {
+export function buildSlackPayload(imageUrl: string, useAttachments: boolean): SlackPayload {
   if (useAttachments) {
     return {
       response_type: 'in_channel',
