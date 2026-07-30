@@ -1,0 +1,119 @@
+name: OpenClaw PR Swarm
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  enqueue:
+    name: Enqueue signed PR Swarm workflow
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-ai-review') }}
+    steps:
+      # Deliberately no checkout and no local action use: this job must not
+      # execute PR code or require repository contents on the runner.
+      - name: Send signed compact PR metadata to OpenClaw webhooks
+        shell: bash
+        env:
+          # TailNet/Funnel URL for the bundled OpenClaw webhooks route, e.g.
+          # https://<tailnet-host>/plugins/webhooks/pr-swarm
+          OPENCLAW_PR_SWARM_WEBHOOK_URL: ${{ secrets.OPENCLAW_PR_SWARM_WEBHOOK_URL }}
+          # Native OpenClaw webhooks route secret (Authorization: Bearer ...).
+          OPENCLAW_PR_SWARM_ROUTE_SECRET: ${{ secrets.OPENCLAW_PR_SWARM_ROUTE_SECRET }}
+          # HMAC signing secret consumed by scripts.pr_swarm.workflow.
+          OPENCLAW_PR_SWARM_SIGNING_SECRET: ${{ secrets.OPENCLAW_PR_SWARM_SIGNING_SECRET }}
+          EVENT_NAME: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          if [ -z "${OPENCLAW_PR_SWARM_WEBHOOK_URL:-}" ] || [ -z "${OPENCLAW_PR_SWARM_ROUTE_SECRET:-}" ] || [ -z "${OPENCLAW_PR_SWARM_SIGNING_SECRET:-}" ]; then
+            echo "PR Swarm webhook URL/route secret/signing secret must be configured as repository secrets" >&2
+            exit 1
+          fi
+          if [ "$EVENT_NAME" != "pull_request" ] && [ "$EVENT_NAME" != "pull_request_target" ]; then
+            echo "PR Swarm only supports pull_request events" >&2
+            exit 0
+          fi
+          /usr/bin/env node <<'NODE'
+          const crypto = require('crypto');
+          const fs = require('fs');
+
+          function stable(value) {
+            if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`;
+            if (value && typeof value === 'object') {
+              return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stable(value[key])}`).join(',')}}`;
+            }
+            return JSON.stringify(value);
+          }
+
+          const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
+          const pr = event.pull_request;
+          if (!pr) process.exit(0);
+          const compact = {
+            eventId: `${event.repository.full_name}:${pr.number}:${process.env.ACTION}:${pr.head.sha}:${process.env.RUN_ID}:${process.env.RUN_ATTEMPT}`,
+            repo: event.repository.full_name,
+            prNumber: pr.number,
+            prUrl: pr.html_url,
+            action: process.env.ACTION,
+            title: String(pr.title || '').slice(0, 200),
+            baseRef: pr.base.ref,
+            headRef: pr.head.ref,
+            headSha: pr.head.sha,
+            isDraft: Boolean(pr.draft),
+            actor: event.sender && event.sender.login,
+            githubRunId: process.env.RUN_ID,
+            githubRunAttempt: process.env.RUN_ATTEMPT,
+            labels: (pr.labels || []).map((label) => label.name),
+            changedFiles: [],
+            checks: [],
+            fork: pr.head.repo && pr.base.repo ? pr.head.repo.full_name !== pr.base.repo.full_name : false,
+            headRepo: pr.head.repo && pr.head.repo.full_name,
+            headOwner: pr.head.repo && pr.head.repo.owner && pr.head.repo.owner.login,
+            authorAssociation: pr.author_association || null,
+            authorTrusted: ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(pr.author_association || ''),
+            branchWritable: pr.head.repo && pr.base.repo ? pr.head.repo.full_name === pr.base.repo.full_name : false,
+            latestObservedHeadSha: pr.head.sha
+          };
+          const timestamp = String(Math.floor(Date.now() / 1000));
+          const nonce = crypto.randomUUID();
+          const compactBody = stable(compact);
+          const signature = `sha256=${crypto.createHmac('sha256', process.env.OPENCLAW_PR_SWARM_SIGNING_SECRET).update(`${timestamp}.${nonce}.${compactBody}`).digest('hex')}`;
+          const signatureHeaders = {
+            'x-openclaw-pr-swarm-timestamp': timestamp,
+            'x-openclaw-pr-swarm-nonce': nonce,
+            'x-openclaw-pr-swarm-signature': signature
+          };
+          const body = {
+            action: 'create_flow',
+            goal: `OpenClaw PR Swarm ${compact.repo}#${compact.prNumber} ${compact.action}`,
+            status: 'queued',
+            notifyPolicy: 'done_only',
+            controllerId: 'pr-swarm/github-actions',
+            waitJson: {
+              kind: 'openclaw.pr_swarm.webhook.v1',
+              lobsterWorkflow: 'scripts/pr_swarm/pr_swarm.lobster',
+              payload: compact,
+              headers: signatureHeaders
+            }
+          };
+          fetch(process.env.OPENCLAW_PR_SWARM_WEBHOOK_URL, {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              'authorization': `Bearer ${process.env.OPENCLAW_PR_SWARM_ROUTE_SECRET}`,
+              ...signatureHeaders
+            },
+            body: JSON.stringify(body)
+          }).then(async (res) => {
+            if (!res.ok) throw new Error(`OpenClaw webhook status ${res.status}: ${await res.text()}`);
+          }).catch((err) => {
+            console.error(`OpenClaw PR Swarm enqueue failed: ${err.message}`);
+            process.exit(1);
+          });
+          NODE
